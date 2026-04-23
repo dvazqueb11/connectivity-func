@@ -61,11 +61,13 @@ deploy.zip
 ### Paso 3: Subir a Azure Portal
 
 1. Ir a **Azure Portal** → tu **Function App**.
-2. En el menú izquierdo, hacer clic en **Advanced Tools**.
-3. Hacer clic en **Go →** (se abre Kudu en una nueva pestaña).
-4. En Kudu, ir a **Tools → Zip Push Deploy**.
-5. **Arrastrar y soltar** tu `deploy.zip` en la zona de upload.
-6. Esperar a que termine el deploy.
+2. En el menú izquierdo, hacer clic en **Deployment Center**.
+3. En la pestaña **Settings**, seleccionar **Source: External Git** o usar **Manual deploy (zip)**.
+   - Si ves la opción **Upload**: subir directamente el `deploy.zip`.
+   - Si no, ir a la pestaña **FTPS credentials** y usar la opción de **Zip Deploy** desde la URL de Kudu:
+     `https://<FUNCTION_APP_NAME>.scm.azurewebsites.net/ZipDeployUI`
+4. **Arrastrar y soltar** tu `deploy.zip` en la zona de upload.
+5. Esperar a que termine el deploy.
 
 ### Paso 4: Verificar
 
