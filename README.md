@@ -55,19 +55,22 @@ Abrir **Azure Cloud Shell** (portal.azure.com > icono de terminal) y ejecutar:
 az functionapp config appsettings set \
   --resource-group <RESOURCE_GROUP> \
   --name <FUNCTION_APP_NAME> \
-  --settings SCM_DO_BUILD_DURING_DEPLOYMENT=true
+  --settings SCM_DO_BUILD_DURING_DEPLOYMENT=true ENABLE_ORYX_BUILD=true
 
-# 2. Subir el ZIP (arrastrarlo a Cloud Shell primero, o usar la ruta local)
+# 2. Subir el ZIP a Cloud Shell (clic en icono Upload/Download > Upload)
+# El archivo quedará en ~/deploy.zip
+
+# 3. Deploy
 az functionapp deployment source config-zip \
   --resource-group <RESOURCE_GROUP> \
   --name <FUNCTION_APP_NAME> \
-  --src deploy.zip \
-  --build-remote true
+  --src ~/deploy.zip
 ```
 
-> **¿Por qué `--build-remote true`?**
-> Azure instala las dependencias de `requirements.txt` directamente en su entorno Linux.
-> Esto evita errores de módulos no encontrados causados por diferencias de plataforma (Windows vs Linux).
+> **¿Por qué `SCM_DO_BUILD_DURING_DEPLOYMENT` y `ENABLE_ORYX_BUILD`?**
+> Estas settings le dicen a Azure que instale las dependencias de `requirements.txt`
+> directamente en su entorno Linux al recibir el ZIP.
+> Esto evita errores de `ModuleNotFoundError` causados por diferencias de plataforma.
 
 ### Alternativa: Deploy desde Azure Portal (Kudu)
 
@@ -94,6 +97,7 @@ En **Azure Portal > Function App > Environment variables**, agregar:
 | `TCP_TARGETS` | `host1.com:443;host2.com:1433` | `host:port` a verificar TCP, separados por `;` |
 | `APPINSIGHTS_INSTRUMENTATIONKEY` | `<guid>` | Clave de instrumentación de Application Insights |
 | `SCM_DO_BUILD_DURING_DEPLOYMENT` | `true` | Habilita instalación de dependencias en deploy |
+| `ENABLE_ORYX_BUILD` | `true` | Habilita el build system de Azure (Oryx) |
 
 ---
 
@@ -110,6 +114,6 @@ En **Azure Portal > Function App > Environment variables**, agregar:
 
 | Error | Causa | Solución |
 |---|---|---|
-| `ModuleNotFoundError: No module named 'applicationinsights'` | Las dependencias no se instalaron en Azure | Verificar que `SCM_DO_BUILD_DURING_DEPLOYMENT=true` y re-deployar con `--build-remote true` |
+| `ModuleNotFoundError: No module named 'applicationinsights'` | Las dependencias no se instalaron en Azure | Verificar que `SCM_DO_BUILD_DURING_DEPLOYMENT=true` y `ENABLE_ORYX_BUILD=true` estén configurados, luego re-deployar |
 | `0 functions found` | El archivo se llama `function.py` en vez de `function_app.py` | Renombrar a `function_app.py` |
 | `WorkerConfig for runtime: python not found` | Function App configurada en Windows | Crear la Function App en **Linux** |
