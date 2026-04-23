@@ -11,102 +11,91 @@ Azure Function (Python v2) que monitorea conectividad DNS y TCP hacia endpoints 
 | `function_app.py` | Código principal de la función |
 | `host.json` | Configuración del runtime de Azure Functions |
 | `requirements.txt` | Dependencias de Python |
+| `.python_packages/` | Dependencias pre-instaladas (listas para deploy directo) |
 | `local.settings.json.example` | Plantilla de variables de entorno |
 
 ---
 
-## Requisitos previos de la Function App en Azure
+## Requisitos de la Function App en Azure
 
 - **Runtime:** Python 3.9, 3.10, o 3.11
 - **SO:** Linux
 - **Plan:** Consumption, Premium, o Dedicated
 - **Application Insights:** Vinculado a la Function App
-- **App Setting requerido:** `SCM_DO_BUILD_DURING_DEPLOYMENT` = `true`
 
 ---
 
-## Deploy (paso a paso)
+## Deploy desde Azure Portal (sin CLI, sin terminal)
 
-### Paso 1: Descargar el código
+### Paso 1: Descargar el ZIP desde GitHub
 
-Descargar este repositorio como ZIP: botón **Code > Download ZIP** en GitHub.
+En este repositorio, hacer clic en **Code > Download ZIP** y guardar el archivo.
 
 ### Paso 2: Preparar el ZIP para deploy
 
-1. Descomprimir el ZIP descargado.
-2. Entrar en la carpeta del proyecto (puede llamarse `connectivity-func-main/` o similar).
-3. **Re-comprimir** SOLO los archivos internos, de modo que queden en la **raíz** del ZIP:
+El ZIP de GitHub mete todo dentro de una subcarpeta (ej: `connectivity-func-main/`).
+Azure necesita los archivos en la **raíz** del ZIP.
 
-   ```
-   deploy.zip
-   ├── function_app.py     ✅ en la raíz
-   ├── host.json           ✅ en la raíz
-   └── requirements.txt    ✅ en la raíz
-   ```
+1. **Descomprimir** el ZIP descargado.
+2. **Entrar** en la carpeta interna (ej: `connectivity-func-main/`).
+3. **Seleccionar todo** el contenido de adentro (Ctrl+A).
+4. **Clic derecho > Comprimir en archivo ZIP** (o "Send to > Compressed folder" en Windows).
+5. Nombrar el nuevo ZIP: `deploy.zip`.
 
-   > **IMPORTANTE:** Los archivos deben estar en la raíz del ZIP, NO dentro de una subcarpeta.
+La estructura correcta debe ser:
 
-### Paso 3: Deploy con Azure CLI (desde Cloud Shell)
-
-Abrir **Azure Cloud Shell** (portal.azure.com > icono de terminal) y ejecutar:
-
-```bash
-# 1. Habilitar build remoto (instala dependencias en Azure automáticamente)
-az functionapp config appsettings set \
-  --resource-group <RESOURCE_GROUP> \
-  --name <FUNCTION_APP_NAME> \
-  --settings SCM_DO_BUILD_DURING_DEPLOYMENT=true ENABLE_ORYX_BUILD=true
-
-# 2. Subir el ZIP a Cloud Shell (clic en icono Upload/Download > Upload)
-# El archivo quedará en ~/deploy.zip
-
-# 3. Deploy
-az functionapp deployment source config-zip \
-  --resource-group <RESOURCE_GROUP> \
-  --name <FUNCTION_APP_NAME> \
-  --src ~/deploy.zip
+```
+deploy.zip
+├── function_app.py          ✅ directamente en la raíz
+├── host.json                ✅ directamente en la raíz
+├── requirements.txt         ✅ directamente en la raíz
+└── .python_packages/        ✅ directamente en la raíz
+    └── lib/site-packages/
+        ├── applicationinsights/
+        ├── azure/functions/
+        └── ...
 ```
 
-> **¿Por qué `SCM_DO_BUILD_DURING_DEPLOYMENT` y `ENABLE_ORYX_BUILD`?**
-> Estas settings le dicen a Azure que instale las dependencias de `requirements.txt`
-> directamente en su entorno Linux al recibir el ZIP.
-> Esto evita errores de `ModuleNotFoundError` causados por diferencias de plataforma.
+> **IMPORTANTE:** Si los archivos quedan DENTRO de una subcarpeta en el ZIP, el deploy fallará.
 
-### Alternativa: Deploy desde Azure Portal (Kudu)
+### Paso 3: Subir a Azure Portal
 
-1. Ir a **Function App > Advanced Tools (Kudu) > Debug Console > CMD**.
-2. Navegar a `site/wwwroot`.
-3. Arrastrar y soltar los archivos (`function_app.py`, `host.json`, `requirements.txt`).
-4. Ejecutar en la consola de Kudu:
-   ```bash
-   python -m pip install -r requirements.txt --target .python_packages/lib/site-packages
-   ```
+1. Ir a **Azure Portal** → tu **Function App**.
+2. En el menú izquierdo, hacer clic en **Advanced Tools**.
+3. Hacer clic en **Go →** (se abre Kudu en una nueva pestaña).
+4. En Kudu, ir a **Tools → Zip Push Deploy**.
+5. **Arrastrar y soltar** tu `deploy.zip` en la zona de upload.
+6. Esperar a que termine el deploy.
+
+### Paso 4: Verificar
+
+1. Volver a **Azure Portal → Function App → Functions**.
+2. Debe aparecer: **`connectivity_monitor`** ✅
+3. Hacer clic en la función → **Test/Run** para probarla manualmente.
 
 ---
 
 ## Configuración de Application Settings
 
-En **Azure Portal > Function App > Environment variables**, agregar:
+En **Azure Portal → Function App → Environment variables**, agregar estas variables y hacer clic en **Apply**:
 
 | Setting | Valor | Descripción |
 |---|---|---|
 | `FUNCTIONS_WORKER_RUNTIME` | `python` | Runtime de la función |
-| `TIMER_SCHEDULE` | `0 */5 * * * *` | Cron expression (cada 5 min en este ejemplo) |
-| `RUN_LOCATION` | `East US` | Etiqueta de ubicación para los reportes en App Insights |
-| `DNS_TARGETS` | `host1.com;host2.com` | Hostnames a verificar DNS, separados por `;` |
-| `TCP_TARGETS` | `host1.com:443;host2.com:1433` | `host:port` a verificar TCP, separados por `;` |
+| `TIMER_SCHEDULE` | `0 */5 * * * *` | Cron expression (cada 5 minutos) |
+| `RUN_LOCATION` | `East US` | Etiqueta de ubicación para App Insights |
+| `DNS_TARGETS` | `host1.com;host2.com` | Hostnames DNS a verificar, separados por `;` |
+| `TCP_TARGETS` | `host1.com:443;host2.com:1433` | `host:port` TCP a verificar, separados por `;` |
 | `APPINSIGHTS_INSTRUMENTATIONKEY` | `<guid>` | Clave de instrumentación de Application Insights |
-| `SCM_DO_BUILD_DURING_DEPLOYMENT` | `true` | Habilita instalación de dependencias en deploy |
-| `ENABLE_ORYX_BUILD` | `true` | Habilita el build system de Azure (Oryx) |
 
 ---
 
 ## Verificación post-deploy
 
-1. Ir a **Function App > Functions** en Azure Portal.
+1. Ir a **Function App → Functions**.
 2. Debe aparecer: **`connectivity_monitor`**
-3. Esperar a que el timer se dispare (o hacer clic en **Test/Run** para ejecutar manualmente).
-4. Revisar **Application Insights > Availability** para ver los resultados.
+3. Esperar a que el timer se dispare, o ejecutar manualmente con **Test/Run**.
+4. Revisar **Application Insights → Availability** para ver los resultados.
 
 ---
 
@@ -114,6 +103,7 @@ En **Azure Portal > Function App > Environment variables**, agregar:
 
 | Error | Causa | Solución |
 |---|---|---|
-| `ModuleNotFoundError: No module named 'applicationinsights'` | Las dependencias no se instalaron en Azure | Verificar que `SCM_DO_BUILD_DURING_DEPLOYMENT=true` y `ENABLE_ORYX_BUILD=true` estén configurados, luego re-deployar |
-| `0 functions found` | El archivo se llama `function.py` en vez de `function_app.py` | Renombrar a `function_app.py` |
-| `WorkerConfig for runtime: python not found` | Function App configurada en Windows | Crear la Function App en **Linux** |
+| `ModuleNotFoundError: No module named 'applicationinsights'` | `.python_packages/` no está en el ZIP o no está en la raíz | Re-crear el ZIP verificando que `.python_packages/` esté en la raíz |
+| `0 functions found` | El archivo no se llama `function_app.py` | Verificar que el archivo se llama exactamente `function_app.py` |
+| `WorkerConfig for runtime: python not found` | Function App creada en Windows | Recrear la Function App seleccionando **Linux** como SO |
+| La función no aparece | El ZIP tiene subcarpeta en la raíz | Abrir el ZIP y verificar que `function_app.py` esté directamente en la raíz |
