@@ -10,8 +10,7 @@ Azure Function (Python v2) que monitorea conectividad DNS y TCP hacia endpoints 
 |---|---|
 | `function_app.py` | Código principal de la función |
 | `host.json` | Configuración del runtime de Azure Functions |
-| `requirements.txt` | Dependencias de Python |
-| `.python_packages/` | Dependencias pre-instaladas (listas para deploy directo) |
+| `requirements.txt` | Dependencias de Python (Azure las instala automáticamente) |
 | `local.settings.json.example` | Plantilla de variables de entorno |
 
 ---
@@ -27,53 +26,41 @@ Azure Function (Python v2) que monitorea conectividad DNS y TCP hacia endpoints 
 
 ## Deploy desde Azure Portal (sin CLI, sin terminal)
 
-### Paso 1: Descargar el ZIP desde GitHub
+### Paso 1: Configurar Application Settings
 
-En este repositorio, hacer clic en **Code > Download ZIP** y guardar el archivo.
+Antes de conectar el repo, agrega esta variable en **Environment variables** (ver sección más abajo):
 
-### Paso 2: Preparar el ZIP para deploy
+| Setting | Valor |
+|---|---|
+| `SCM_DO_BUILD_DURING_DEPLOYMENT` | `1` |
 
-El ZIP de GitHub mete todo dentro de una subcarpeta (ej: `connectivity-func-main/`).
-Azure necesita los archivos en la **raíz** del ZIP.
+Esto hace que Azure instale automáticamente las dependencias de `requirements.txt` al desplegar.
 
-1. **Descomprimir** el ZIP descargado.
-2. **Entrar** en la carpeta interna (ej: `connectivity-func-main/`).
-3. **Seleccionar todo** el contenido de adentro (Ctrl+A).
-4. **Clic derecho > Comprimir en archivo ZIP** (o "Send to > Compressed folder" en Windows).
-5. Nombrar el nuevo ZIP: `deploy.zip`.
-
-La estructura correcta debe ser:
-
-```
-deploy.zip
-├── function_app.py          ✅ directamente en la raíz
-├── host.json                ✅ directamente en la raíz
-├── requirements.txt         ✅ directamente en la raíz
-└── .python_packages/        ✅ directamente en la raíz
-    └── lib/site-packages/
-        ├── applicationinsights/
-        ├── azure/functions/
-        └── ...
-```
-
-> **IMPORTANTE:** Si los archivos quedan DENTRO de una subcarpeta en el ZIP, el deploy fallará.
-
-### Paso 3: Subir a Azure Portal
+### Paso 2: Conectar GitHub en Deployment Center
 
 1. Ir a **Azure Portal** → tu **Function App**.
 2. En el menú izquierdo, hacer clic en **Deployment Center**.
-3. En la pestaña **Settings**, seleccionar **Source: External Git** o usar **Manual deploy (zip)**.
-   - Si ves la opción **Upload**: subir directamente el `deploy.zip`.
-   - Si no, ir a la pestaña **FTPS credentials** y usar la opción de **Zip Deploy** desde la URL de Kudu:
-     `https://<FUNCTION_APP_NAME>.scm.azurewebsites.net/ZipDeployUI`
-4. **Arrastrar y soltar** tu `deploy.zip` en la zona de upload.
-5. Esperar a que termine el deploy.
+3. En **Source**, seleccionar **GitHub**.
+4. Si es la primera vez, hacer clic en **Authorize** para vincular tu cuenta de GitHub.
+5. Seleccionar:
+   - **Organization:** `dvazqueb11` (o la org correspondiente)
+   - **Repository:** `connectivity-func`
+   - **Branch:** `main`
+6. Hacer clic en **Save**.
 
-### Paso 4: Verificar
+Azure automáticamente:
+- Descarga el código del repositorio
+- Instala las dependencias de `requirements.txt`
+- Despliega la función
 
-1. Volver a **Azure Portal → Function App → Functions**.
-2. Debe aparecer: **`connectivity_monitor`** ✅
-3. Hacer clic en la función → **Test/Run** para probarla manualmente.
+### Paso 3: Verificar
+
+1. En Deployment Center, esperar a que el estado del deploy sea ✅ **Success**.
+2. Ir a **Function App → Functions**.
+3. Debe aparecer: **`connectivity_monitor`** ✅
+4. Hacer clic en la función → **Test/Run** para probarla manualmente.
+
+> **Para re-desplegar:** Cada vez que se haga `git push` al branch `main`, Azure despliega automáticamente.
 
 ---
 
