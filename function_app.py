@@ -64,6 +64,8 @@ def _send_availability(
 
 	try:
 		data = AvailabilityData()
+		data.ENVELOPE_TYPE_NAME = 'Microsoft.ApplicationInsights.Availability'
+		data.DATA_TYPE_NAME = 'AvailabilityData'
 		data.id = str(uuid.uuid4())
 		data.name = name
 		data.duration = _ms_to_duration(duration_ms)
