@@ -2,11 +2,13 @@ import logging
 import os
 import socket
 import time
+import uuid
 from typing import List, Optional, Tuple
 
 import azure.functions as func
 from applicationinsights import TelemetryClient
 from applicationinsights.channel import SynchronousQueue, SynchronousSender, TelemetryChannel
+from applicationinsights.channel.contracts import AvailabilityData
 
 app = func.FunctionApp()
 
@@ -37,6 +39,18 @@ def _build_telemetry_client() -> Optional[TelemetryClient]:
 # Registra el nombre de la prueba, si fue exitosa, la duración en ms,
 # la ubicación de ejecución y un mensaje descriptivo del resultado.
 # Si el cliente de telemetría es None, no hace nada.
+def _ms_to_duration(duration_ms: int) -> str:
+	"""Converts milliseconds to the Application Insights duration format (dd.hh:mm:ss.mmm)."""
+	ms = duration_ms % 1000
+	seconds = (duration_ms // 1000) % 60
+	minutes = (duration_ms // 60000) % 60
+	hours = (duration_ms // 3600000) % 24
+	days = duration_ms // 86400000
+	if days:
+		return '%d.%02d:%02d:%02d.%03d' % (days, hours, minutes, seconds, ms)
+	return '%02d:%02d:%02d.%03d' % (hours, minutes, seconds, ms)
+
+
 def _send_availability(
 	client: Optional[TelemetryClient],
 	name: str,
@@ -49,21 +63,20 @@ def _send_availability(
 		return
 
 	try:
-		client.track_availability(
-			name=name,
-			url=name,
-			success=success,
-			duration=duration_ms,
-			run_location=run_location,
-			message=message,
-		)
+		data = AvailabilityData()
+		data.ENVELOPE_TYPE_NAME = 'Microsoft.ApplicationInsights.Availability'
+		data.DATA_TYPE_NAME = 'AvailabilityData'
+		data.id = str(uuid.uuid4())
+		data.name = name
+		data.duration = _ms_to_duration(duration_ms)
+		data.success = success
+		data.run_location = run_location
+		data.message = message
+
+		client.track(data, client._context)
+		client.flush()
 	except Exception:
 		logging.exception("Failed to track availability for %s", name)
-	finally:
-		try:
-			client.flush()
-		except Exception:
-			logging.exception("Failed to flush telemetry channel")
 
 
 # Realiza una verificación de resolución DNS para un hostname dado.
