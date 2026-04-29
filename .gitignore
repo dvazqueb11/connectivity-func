@@ -7,9 +7,6 @@ __pycache__/
 # Virtual environment
 .venv/
 
-# Pre-installed packages (Azure installs from requirements.txt)
-.python_packages/
-
 # Azure Functions local settings (contains secrets)
 local.settings.json
 
