@@ -2,15 +2,50 @@ import logging
 import os
 import socket
 import time
-import uuid
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 import azure.functions as func
-from applicationinsights import TelemetryClient
-from applicationinsights.channel import SynchronousQueue, SynchronousSender, TelemetryChannel
-from applicationinsights.channel.contracts import AvailabilityData
+from azure.monitor.opentelemetry import configure_azure_monitor
+from opentelemetry import metrics, trace
+from opentelemetry.trace import SpanKind, Status, StatusCode
 
 app = func.FunctionApp()
+
+
+def _configure_telemetry() -> None:
+	worker_telemetry_enabled = os.getenv(
+		"PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY", ""
+	).strip().lower() == "true"
+	if worker_telemetry_enabled:
+		return
+
+	connection_string = os.getenv("APPLICATIONINSIGHTS_CONNECTION_STRING", "").strip()
+	if not connection_string:
+		logging.warning(
+			"APPLICATIONINSIGHTS_CONNECTION_STRING is not set. Telemetry will be skipped."
+		)
+		return
+
+	try:
+		configure_azure_monitor(connection_string=connection_string)
+	except Exception:
+		logging.exception("Failed to configure Azure Monitor OpenTelemetry.")
+
+
+_configure_telemetry()
+
+_tracer = trace.get_tracer("connectivity_monitor")
+_meter = metrics.get_meter("connectivity_monitor")
+_check_counter = _meter.create_counter(
+	"connectivity.check.count",
+	unit="{check}",
+	description="Number of DNS and TCP connectivity checks.",
+)
+_check_duration = _meter.create_histogram(
+	"connectivity.check.duration",
+	unit="ms",
+	description="Duration of DNS and TCP connectivity checks.",
+)
 
 
 # Lee una variable de entorno y la divide por ";" para obtener una lista de valores.
@@ -20,63 +55,57 @@ def _get_env_list(name: str) -> List[str]:
 	return [item.strip() for item in raw.split(";") if item.strip()]
 
 
-# Construye y retorna un cliente de telemetría de Application Insights.
-# Usa la clave de instrumentación desde la variable de entorno APPINSIGHTS_INSTRUMENTATIONKEY.
-# Si la clave no está configurada, retorna None y la telemetría se omite.
-def _build_telemetry_client() -> Optional[TelemetryClient]:
-	instrumentation_key = os.getenv("APPINSIGHTS_INSTRUMENTATIONKEY", "").strip()
-	if not instrumentation_key:
-		logging.warning("APPINSIGHTS_INSTRUMENTATIONKEY is not set. Telemetry will be skipped.")
-		return None
-
-	sender = SynchronousSender()
-	queue = SynchronousQueue(sender)
-	channel = TelemetryChannel(None, queue)
-	return TelemetryClient(instrumentation_key, telemetry_channel=channel)
-
-
-# Envía un registro de disponibilidad (availability) a Application Insights.
-# Registra el nombre de la prueba, si fue exitosa, la duración en ms,
-# la ubicación de ejecución y un mensaje descriptivo del resultado.
-# Si el cliente de telemetría es None, no hace nada.
-def _ms_to_duration(duration_ms: int) -> str:
-	"""Converts milliseconds to the Application Insights duration format (dd.hh:mm:ss.mmm)."""
-	ms = duration_ms % 1000
-	seconds = (duration_ms // 1000) % 60
-	minutes = (duration_ms // 60000) % 60
-	hours = (duration_ms // 3600000) % 24
-	days = duration_ms // 86400000
-	if days:
-		return '%d.%02d:%02d:%02d.%03d' % (days, hours, minutes, seconds, ms)
-	return '%02d:%02d:%02d.%03d' % (hours, minutes, seconds, ms)
-
-
-def _send_availability(
-	client: Optional[TelemetryClient],
+def _run_observed_check(
 	name: str,
-	success: bool,
-	duration_ms: int,
+	check_type: str,
+	target: str,
+	host: str,
 	run_location: str,
-	message: str,
+	check: Callable[[], Tuple[bool, int, str]],
+	port: Optional[int] = None,
 ) -> None:
-	if client is None:
-		return
+	span_attributes = {
+		"connectivity.check.type": check_type,
+		"connectivity.target": target,
+		"connectivity.run.location": run_location,
+		"server.address": host,
+	}
+	if port is not None:
+		span_attributes["server.port"] = port
+		span_attributes["network.transport"] = "tcp"
 
-	try:
-		data = AvailabilityData()
-		data.ENVELOPE_TYPE_NAME = 'Microsoft.ApplicationInsights.Availability'
-		data.DATA_TYPE_NAME = 'AvailabilityData'
-		data.id = str(uuid.uuid4())
-		data.name = name
-		data.duration = _ms_to_duration(duration_ms)
-		data.success = success
-		data.run_location = run_location
-		data.message = message
+	with _tracer.start_as_current_span(
+		name,
+		kind=SpanKind.CLIENT,
+		attributes=span_attributes,
+	) as span:
+		success, duration_ms, message = check()
+		span.set_attributes(
+			{
+				"connectivity.success": success,
+				"connectivity.duration_ms": duration_ms,
+				"connectivity.message": message,
+			}
+		)
+		if success:
+			span.set_status(Status(StatusCode.OK))
+		else:
+			span.set_status(Status(StatusCode.ERROR, message))
+			span.set_attribute("error.type", "connectivity_check_failed")
 
-		client.track(data, client._context)
-		client.flush()
-	except Exception:
-		logging.exception("Failed to track availability for %s", name)
+		metric_attributes = {
+			"connectivity.check.type": check_type,
+			"connectivity.target": target,
+			"connectivity.run.location": run_location,
+			"connectivity.success": success,
+		}
+		_check_counter.add(1, metric_attributes)
+		_check_duration.record(duration_ms, metric_attributes)
+
+	if success:
+		logging.info("%s | %d ms | %s", name, duration_ms, message)
+	else:
+		logging.warning("%s | %d ms | %s", name, duration_ms, message)
 
 
 # Realiza una verificación de resolución DNS para un hostname dado.
@@ -123,7 +152,6 @@ def connectivity_monitor(mytimer: func.TimerRequest) -> None:
 	run_location = os.getenv("RUN_LOCATION", "Unknown")
 	dns_targets = _get_env_list("DNS_TARGETS")
 	tcp_targets = _get_env_list("TCP_TARGETS")
-	telemetry_client = _build_telemetry_client()
 
 	if mytimer.past_due:
 		logging.warning("Timer trigger is running later than scheduled.")
@@ -133,21 +161,14 @@ def connectivity_monitor(mytimer: func.TimerRequest) -> None:
 		return
 
 	for hostname in dns_targets:
-		success, duration_ms, message = dns_check(hostname)
 		event_name = f"DNS::{hostname}"
-
-		if success:
-			logging.info("%s | %d ms | %s", event_name, duration_ms, message)
-		else:
-			logging.warning("%s | %d ms | %s", event_name, duration_ms, message)
-
-		_send_availability(
-			client=telemetry_client,
+		_run_observed_check(
 			name=event_name,
-			success=success,
-			duration_ms=duration_ms,
+			check_type="dns",
+			target=hostname,
+			host=hostname,
 			run_location=run_location,
-			message=message,
+			check=lambda hostname=hostname: dns_check(hostname),
 		)
 
 	for target in tcp_targets:
@@ -166,19 +187,13 @@ def connectivity_monitor(mytimer: func.TimerRequest) -> None:
 			logging.error("Invalid TCP port in target '%s'. Expected integer 1-65535", target)
 			continue
 
-		success, duration_ms, message = tcp_check(host, port)
 		event_name = f"TCP::{host}:{port}"
-
-		if success:
-			logging.info("%s | %d ms | %s", event_name, duration_ms, message)
-		else:
-			logging.warning("%s | %d ms | %s", event_name, duration_ms, message)
-
-		_send_availability(
-			client=telemetry_client,
+		_run_observed_check(
 			name=event_name,
-			success=success,
-			duration_ms=duration_ms,
+			check_type="tcp",
+			target=f"{host}:{port}",
+			host=host,
 			run_location=run_location,
-			message=message,
+			check=lambda host=host, port=port: tcp_check(host, port),
+			port=port,
 		)

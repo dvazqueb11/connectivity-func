@@ -3,10 +3,13 @@
   "Values": {
     "AzureWebJobsStorage": "<your-storage-connection-string>",
     "FUNCTIONS_WORKER_RUNTIME": "python",
-    "TIMER_SCHEDULE": "0 */5 * * * *",
+    "TIMER_SCHEDULE": "0 * 0,12-23 * * *",
     "RUN_LOCATION": "<your-region-or-label>",
     "DNS_TARGETS": "host1.example.com;host2.example.com",
     "TCP_TARGETS": "host1.example.com:443;host2.example.com:1433",
-    "APPINSIGHTS_INSTRUMENTATIONKEY": "<your-instrumentation-key>"
+    "APPLICATIONINSIGHTS_CONNECTION_STRING": "<your-application-insights-connection-string>",
+    "PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY": "true",
+    "OTEL_TRACES_SAMPLER": "always_on",
+    "OTEL_SERVICE_NAME": "connectivity-monitor"
   }
 }
