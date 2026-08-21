@@ -6,6 +6,7 @@ __pycache__/
 
 # Virtual environment
 .venv/
+.python_packages/
 
 # Azure Functions local settings (contains secrets)
 local.settings.json
@@ -23,3 +24,4 @@ Thumbs.db
 
 # Build archives (generated)
 *.zip
+report*.json
